@@ -214,6 +214,8 @@
 
 			+ Thực hiện sửa file cấu hình */etc/maxscale.cnf*:
 
+					# cp /etc/maxscale.cnf /etc/maxscale.cnf.backup
+					# rm - rf /etc/maxscale.cnf
 					# vi /etc/maxscale.cnf
 
 				sửa các dòng để có được nội dung giống như sau:
