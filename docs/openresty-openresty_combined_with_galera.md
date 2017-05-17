@@ -6,7 +6,7 @@
 - [Vấn đề bài toán và mô hình](#issue)
 - [Cài đặt mariadb và galera](#install)
 - [Cấu hình galera cho các node](#config)
-- [Kiểm tra kết quả](#test)
+- [Cấu hình cho load balancer](#load-balancer)
 - [Các nội dung khác](#content-others)
 
 
@@ -143,15 +143,11 @@
 			|  wsrep_cluster_size |     2     |
 			+---------------------+-----------+
 
-	- Trên backends01, ta thực hiện cài đặt maxsacle như sau:
-
-			# yum install maxscale
-
 	- Tiếp theo, sau khi maxscale đã được cài đặt, ta cần thực hiện cấp quyền truy cập database. Đầu tiên, ta cài đặt password cho user root để truy nhập database bằng việc chạy câu lệnh:
 
 			# mysql_secure_installation
 
-	- Cấp quyền truy cập database:
+	- Cấp quyền truy cập database (yêu cầu trên load balancer đã được cài đặt maxscale):
 
 			# mysql -u root -p
 			Enter password: 
@@ -163,10 +159,162 @@
 			GRANT SELECT ON mysql.user TO 'maxscale'@'%';
 			GRANT SHOW DATABASES ON *.* TO 'maxscale'@'%';
 			
-- #### <a name=""></a>
-- #### <a name=""></a>
+- #### <a name="load-balancer">Cấu hình cho load balancer</a>
 
+	+ Trên load balancer (yêu cầu đã được cài đặt nginx), ta thực hiện các lệnh cấu hình sau:
 
+		- Tạo một file cấu hình upstream cho database.
+
+				# touch /etc/nginx/conf.d/backends-database.conf
+
+		- Tạo virtual host riêng để kiểm tra:
+
+				# vi /etc/nginx/conf.d/backends-database.conf
+
+			thêm nội dung sau vào file:
+
+				upstream  backends-database{
+				        server  backends01;
+				        server  backends02      backup;
+				}
+
+				server {
+				        listen 80;
+				        server_name _;
+
+				        location / {
+				            proxy_pass http://backends-database;
+				        }
+				}
+
+		- Sửa file */etc/nginx/nginx.conf* để tránh trùng port bằng việc tìm đến dòng
+
+				...
+				listen 80 default_server;
+				listen [::]:80  default_server;
+				...
+
+			sửa 80 thành 8080 giống như sau:
+
+				...
+				listen 8080 default_server;
+				listen [::]:8080  default_server;
+				...
+
+		- Cài đặt gói cài đặt maxscale
+
+				# curl https://downloads.mariadb.com/MaxScale/2.0.5/rhel/7/x86_64/maxscale-2.0.5-1.rhel.7.x86_64.rpm -o maxscale.rpm
+				# yum install maxscale.rpm
+
+		- Thực hiện cấu hình cho maxscale
+
+			+ Tạo backup file cấu hình của maxscale bằng cách chạy câu lệnh:
+
+					# cp /etc/maxscale.cnf /etc/maxscale.cnf.backup
+
+			+ Thực hiện sửa file cấu hình */etc/maxscale.cnf*:
+
+					# vi /etc/maxscale.cnf
+
+				sửa các dòng để có được nội dung giống như sau:
+
+					[maxscale]
+					threads=4
+					syslog=0
+					maxlog=1
+					log_to_shm=1
+					log_warning=1
+					log_notice=1
+					log_info=0
+					log_debug=0
+
+					[Galera Monitor]
+					type=monitor
+					module=galeramon
+					servers=server1,server2
+					user=maxscale
+					passwd=password
+					monitor_interval=2000
+					disable_master_failback=1
+					available_when_donor=1
+
+					[qla]
+					type=filter
+					module=qlafilter
+					options=/tmp/QueryLog
+
+					[fetch]
+					type=filter
+					module=regexfilter
+					match=fetch
+					replace=select
+
+					[RW Split Router]
+					type=service
+					router=readwritesplit
+					servers=server1,server2
+					user=maxscale
+					passwd=password
+					max_slave_connections=100%
+					max_slave_replication_lag=30
+
+					[CLI]
+					type=service
+					router=cli
+
+					[RW Split Listener]
+					type=listener
+					service=RW Split Router
+					protocol=MySQLClient
+					port=3306
+
+					[CLI Listener]
+					type=listener
+					service=CLI
+					protocol=maxscaled
+					address=127.0.0.1
+					port=6603
+
+					[server1]
+					type=server
+					address=10.10.10.20
+					port=3306
+					protocol=MySQLBackend
+
+					[server2]
+					type=server
+					address=10.10.10.30
+					port=3306
+					protocol=MySQLBackend
+
+			+ Thực hiển mở port:
+
+					# firewall-cmd --permanent --add-port=3306/tcp
+					# firewall-cmd --permanent --add-port=4567/tcp
+					# firewall-cmd --permanent --add-port=873/tcp
+					# firewall-cmd --permanent --add-port=4444/tcp
+					# firewall-cmd --permanent --add-port=9200/tcp
+					# firewall-cmd --permanent --add-port=6603/tcp
+					# firewall-cmd --reload
+					# setenforce 0
+
+			+ Khởi động lại maxscale
+
+					# systemctl restart maxscale
+
+			+ Kiểm tra kết quả xem đã thành công hay chưa, sử dụng câu lệnh:
+
+					# maxadmin -pmariadb list servers
+
+				kết quả nhận được:
+
+					Servers.
+					-------------------+-----------------+-------+-------------+--------------------
+					Server             | Address         | Port  | Connections | Status
+					-------------------+-----------------+-------+-------------+--------------------
+					server1            | 10.10.10.20     |  3306 |           0 | Master, Synced, Running
+					server2            | 10.10.10.30     |  3306 |           0 | Slave, Synced, Running
+					-------------------+-----------------+-------+-------------+--------------------
 
 
 - # <a name="content-others">Các nội dung khác</a>
