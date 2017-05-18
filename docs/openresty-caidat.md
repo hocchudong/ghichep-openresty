@@ -95,6 +95,67 @@
 
 - # <a name="content-others">Các nội dung khác</a>
 
-	Sẽ cập nhật sau.
+- ## Tạo thư mục làm việc với nginx.
 
+- Chúng ta tạo ra một thư mục work như sau :
+
+    ```sh
+    mkdir work
+    cd work
+    ```
+
+- Trong thư mục work chúng ta thực hiện tạo 2 thư mục logs dùng để lưu trữ lại các logs, và conf để lưu trữ các file config :
+
+    ```sh
+    mkdir logs/ conf/
+    ```
+
+- Tại file nginx.conf :
+
+    ```sh
+    vi conf/nginx.conf
+    ```
+
+- Thêm nội dung sau vào file nginx.conf :
+
+    ```sh
+    worker_processes  1;
+    error_log logs/error.log;
+    events {
+        worker_connections 1024;
+    }
+    http {
+        server {
+            listen 8080;
+            location / {
+                default_type text/html;
+                content_by_lua '
+                    ngx.say("<p>hello, world</p>")
+                ';
+            }
+        }
+    }
+    ```
+
+- Khởi động nginx :
+
+    ```sh
+    nginx -p `pwd`/ -c conf/nginx.conf
+    ```
+
+- Kiểm tra lại kết quả :
+
+    ```sh
+    curl 10.10.20.10:8080
+    ```
+
+- Chúng ta sẽ nhận được kết quả trả về như sau :
+
+    ```sh
+    datpt@datpt:~$ curl 10.10.20.10:8080
+    <p>hello, world</p>
+    datpt@datpt:~$ 
+
+    ```
+# Updating ................
 	+ [](#)
